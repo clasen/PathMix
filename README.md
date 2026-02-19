@@ -1,4 +1,4 @@
-# pathmix
+# PathMix
 
 Unified path utilities for Node.js that work the same way in both ESM and CommonJS.
 
