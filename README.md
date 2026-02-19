@@ -6,16 +6,10 @@ Unified path utilities for Node.js that work the same way in both ESM and Common
 
 Whenever you need the path of the current file or its directory, Node.js requires different boilerplate depending on the module system you are using.
 
-In CommonJS, `__dirname` and `__filename` are available as globals with no setup:
+In ESM, `__dirname` and `__filename` do not exist. You have to reconstruct them every time:
 
 ```js
-const path = require('node:path');
-const config = path.join(__dirname, 'config.json');
-```
-
-In ESM they do not exist. You have to reconstruct them every time:
-
-```js
+// Without pathmix
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -23,6 +17,31 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname  = dirname(__filename);
 
 const config = join(__dirname, 'config.json');
+```
+
+With pathmix, the boilerplate disappears:
+
+```js
+// With pathmix
+import PathMix from 'pathmix';
+
+const config = PathMix.dir('config.json');
+```
+
+The same applies to building paths relative to the working directory:
+
+```js
+// Without pathmix
+import { join } from 'node:path';
+
+const output = join(process.cwd(), 'dist', 'bundle.js');
+```
+
+```js
+// With pathmix
+import PathMix from 'pathmix';
+
+const output = PathMix.cwd('dist', 'bundle.js');
 ```
 
 That boilerplate is easy to forget, easy to get slightly wrong, and has to be repeated in every file that needs it. If you are working across a mixed codebase — or publishing a package that must support both module systems — you end up maintaining two separate conventions.
