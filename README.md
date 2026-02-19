@@ -1,6 +1,6 @@
 # PathMix
 
-Unified path utilities for Node.js that work the same way in both ESM and CommonJS.
+Unified path helper. that work the same way in both ESM and CommonJS.
 
 ## The problem
 
