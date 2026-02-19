@@ -148,6 +148,14 @@ PathMix.format({ dir: '/a', base: 'b.js' }) // /a/b.js
 PathMix.sep                   // '/' on Unix, '\\' on Windows
 ```
 
+## AI Skill
+
+You can add PathMix as a skill for AI agentic development:
+
+```bash
+npx skills add https://github.com/clasen/PathMix --skill pathmix
+```
+
 ## Requirements
 
 Node.js >= 16
