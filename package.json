@@ -1,0 +1,39 @@
+{
+  "name": "pathmix",
+  "version": "1.0.0",
+  "description": "Static class for unified path management across ESM and CommonJS",
+  "license": "ISC",
+  "author": "",
+  "type": "module",
+  "main": "index.cjs",
+  "module": "index.js",
+  "exports": {
+    ".": {
+      "import": "./index.js",
+      "require": "./index.cjs"
+    }
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "files": [
+    "index.js",
+    "index.cjs"
+  ],
+  "keywords": [
+    "path",
+    "dirname",
+    "filename",
+    "import.meta",
+    "meta.url",
+    "esm",
+    "commonjs",
+    "cross-platform",
+    "SKILL.md",
+    "helper",
+    "clasen"
+  ],
+  "scripts": {
+    "test": "node demo/example.mjs && node demo/example.cjs"
+  }
+}
