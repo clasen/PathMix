@@ -1,6 +1,8 @@
 ---
 name: pathmix-path-resolution
-description: Use PathMix for Node.js file path resolution in ESM and CommonJS. Apply when writing Node.js code that requires __dirname, __filename, file-relative paths, home directory paths, cwd-relative paths, or temp directory paths — especially in ESM files or mixed ESM/CJS codebases where the standard globals are unavailable.
+description: Use PathMix for Node.js file path resolution in ESM and CommonJS. Apply when writing Node.js code that requires __dirname, __filename, file-relative paths, home directory paths, cwd-relative paths, or temp directory paths — especially in ESM files or mixed ESM/CJS codebases where the standard globals are unavailable. Also trigger when the user needs to replace fileURLToPath(new URL(..., import.meta.url)), path.resolve boilerplate, or is converting CJS code to ESM and hits missing __dirname/__filename errors.
+metadata:
+  tags: [nodejs, paths, esm, cjs, pathmix]
 ---
 
 # PathMix — Unified Node.js Path Resolution
@@ -28,25 +30,20 @@ PathMix is a static-class wrapper around `node:path` that provides a single, con
 
 ---
 
-## Input Specification
+## Quick Reference
 
-All PathMix methods are synchronous and static. Inputs are positional string arguments.
+| Method | Returns | Notes |
+|--------|---------|-------|
+| `dir(...segments)` | Directory of calling file + joined segments | First arg can be `import.meta.url` or a path segment |
+| `file(url?)` | Absolute path of calling file | Pass `import.meta.url` in edge contexts |
+| `home(...segments)` | `os.homedir()` + segments | |
+| `cwd(...segments)` | `process.cwd()` + segments | |
+| `tmp(...segments)` | `os.tmpdir()` + segments | |
+| `resolve(...segments)` | Absolute path with `~`/`$HOME` expanded | |
+| `__dirname(url?)` | Same as `dir()` with no extra segments | Drop-in for CJS global |
+| `__filename(url?)` | Same as `file()` | Drop-in for CJS global |
 
-| Method | First arg | Rest args | Notes |
-|--------|-----------|-----------|-------|
-| `dir(...segments)` | `import.meta.url` (file URL) **or** a path segment | path segments | First arg is auto-detected if omitted |
-| `file(url?)` | `import.meta.url` (optional) | — | Auto-detected if omitted |
-| `home(...segments)` | path segment (optional) | path segments | Base is `os.homedir()` |
-| `cwd(...segments)` | path segment (optional) | path segments | Base is `process.cwd()` |
-| `tmp(...segments)` | path segment (optional) | path segments | Base is `os.tmpdir()` |
-| `resolve(...segments)` | path string, may start with `~` or `$HOME` | path segments | Expands home tokens before resolving |
-| `__dirname(url?)` | `import.meta.url` (optional) | — | Equivalent to `dir()` with no extra segments |
-| `__filename(url?)` | `import.meta.url` (optional) | — | Equivalent to `file()` |
-
-**Validation rules:**
-- All inputs must be `string`. Non-string values are passed through unchanged.
-- `dir()`, `file()`, `__dirname()`, `__filename()` throw `Error` when called with no args if stack introspection fails.
-- Token expansion (`~`, `$HOME`) applies only to the leading characters of a segment — not mid-string.
+All methods are synchronous and return an absolute, platform-native string. They throw `Error` synchronously on failure — wrap in `try/catch` if the call context is indirect (eval, worker threads, dynamic loaders).
 
 **Example inputs:**
 ```js
@@ -57,48 +54,6 @@ PathMix.home('.ssh', 'config')
 PathMix.resolve('~/Documents/report.pdf')
 PathMix.resolve('$HOME/.config/app')
 ```
-
----
-
-## Output Specification
-
-All methods return a `string` (absolute, platform-native path). No method is async.
-
-```json
-{
-  "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "PathMixResult",
-  "oneOf": [
-    {
-      "type": "string",
-      "description": "Absolute filesystem path on success"
-    },
-    {
-      "type": "object",
-      "description": "Synchronously thrown Error on failure",
-      "properties": {
-        "name":    { "type": "string", "const": "Error" },
-        "message": { "type": "string" }
-      },
-      "required": ["name", "message"]
-    }
-  ]
-}
-```
-
-**Example outputs (Linux/macOS):**
-```
-PathMix.dir()                → "/home/user/project/src"
-PathMix.dir('config.json')   → "/home/user/project/src/config.json"
-PathMix.file()               → "/home/user/project/src/utils.js"
-PathMix.home('.ssh')         → "/home/user/.ssh"
-PathMix.cwd('dist')          → "/home/user/project/dist"
-PathMix.tmp('uploads')       → "/tmp/uploads"
-PathMix.resolve('~/.config') → "/home/user/.config"
-PathMix.join('a', 'b', 'c') → "a/b/c"
-```
-
-**Error reporting:** Methods throw synchronously. Wrap in `try/catch` when the caller context may lack a reliable stack frame (e.g., inside `eval`, indirect dynamic calls, or worker threads).
 
 ---
 
@@ -131,14 +86,12 @@ When writing or reviewing Node.js code that needs path resolution:
    | Pure path manipulation | `PathMix.join()`, `.basename()`, etc. |
    | CJS `__dirname` / `__filename` in ESM | `PathMix.__dirname()` / `PathMix.__filename()` |
 
-5. **Handle edge cases — use explicit `import.meta.url`** when:
-   - The call is inside a callback, dynamic loader, or worker context where V8 stack detection may fail.
-   - Decision tree:
-     ```
-     Reliable stack frame available?
-     ├── Yes (top-level, named function) → PathMix.dir(...segments)
-     └── No (eval, indirect call)        → PathMix.dir(import.meta.url, ...segments)
-     ```
+5. **Handle edge cases — use explicit `import.meta.url`** when the call is inside a callback, dynamic loader, or worker context where V8 stack detection may fail:
+   ```
+   Reliable stack frame available?
+   ├── Yes (top-level, named function) → PathMix.dir(...segments)
+   └── No (eval, indirect call)        → PathMix.dir(import.meta.url, ...segments)
+   ```
 
 6. **Verify** — Confirm the returned path resolves to the intended location relative to the calling file.
 
@@ -148,11 +101,10 @@ When writing or reviewing Node.js code that needs path resolution:
 
 - **No file I/O** — PathMix only constructs path strings. It does not touch the filesystem.
 - **No shell execution** — Never pass PathMix output directly into shell commands without sanitization; path strings may contain spaces or special characters.
-- **V8 only for auto-detection** — Stack-based caller detection uses `Error.captureStackTrace`, which is V8-specific. In non-V8 runtimes, always pass `import.meta.url` explicitly.
-- **Platform-native separators** — On Windows, `sep` is `\\` and paths use backslashes. Do not hard-code `/` as a separator; use `PathMix.join()` instead.
+- **V8 only for auto-detection** — Stack-based caller detection uses `Error.captureStackTrace`. In non-V8 runtimes, always pass `import.meta.url` explicitly.
+- **Platform-native separators** — On Windows, `sep` is `\\`. Do not hard-code `/`; use `PathMix.join()` instead.
 - **Do not monkey-patch** — All PathMix methods are static. Do not override or extend them at runtime.
 - **Node.js ≥ 16 required** — The `node:` protocol imports and `Error.captureStackTrace` patterns do not work on older Node versions.
-- **Ethical use** — PathMix constructs paths only. Responsibility for what is read, written, or executed at those paths lies with the calling code.
 
 ---
 
@@ -203,7 +155,25 @@ const schema = PathMix.dir('db', 'schema.sql');
 
 ---
 
-**Example 3 — Home directory dotfile**
+**Example 3 — Replacing `fileURLToPath(new URL(...))` boilerplate**
+
+Before (ESM boilerplate):
+```js
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const assets = join(__dirname, 'assets');
+```
+
+After (PathMix):
+```js
+import PathMix from 'pathmix';
+const assets = PathMix.dir('assets');
+```
+
+---
+
+**Example 4 — Home directory dotfile**
 
 Input: "Resolve the user's `.npmrc` path"
 ```js
@@ -213,7 +183,7 @@ const npmrc = PathMix.home('.npmrc');  // → "/home/user/.npmrc"
 
 ---
 
-**Example 4 — Token expansion for user-supplied paths**
+**Example 5 — Token expansion for user-supplied paths**
 
 Input: "Accept a config path from an env variable that may start with `~`"
 ```js
@@ -224,7 +194,7 @@ const resolved = PathMix.resolve(userPath);  // ~ expanded correctly
 
 ---
 
-**Example 5 — Explicit `import.meta.url` in an edge context**
+**Example 6 — Explicit `import.meta.url` in an edge context**
 
 Input: "Pass `dir()` through a factory function where stack detection may be unreliable"
 ```js
@@ -240,7 +210,7 @@ const icon = getAssetPath(import.meta.url, 'icons', 'logo.svg');
 
 ---
 
-**Example 6 — Mixed codebase (CJS consumer, same API)**
+**Example 7 — Mixed codebase (CJS consumer, same API)**
 
 ```js
 const PathMix = require('pathmix');
@@ -249,26 +219,6 @@ const PathMix = require('pathmix');
 const tmpl = PathMix.dir('templates', 'email.html');
 const cache = PathMix.tmp('cache', 'session.json');
 ```
-
----
-
-## Evaluation Criteria
-
-| # | Criterion | Pass condition |
-|---|-----------|---------------|
-| 1 | Correct ESM import | `import PathMix from 'pathmix'` resolves without error |
-| 2 | Correct CJS import | `require('pathmix')` resolves without error |
-| 3 | `dir()` auto-detection | Returns the calling file's directory without arguments |
-| 4 | `dir()` explicit URL | `PathMix.dir(import.meta.url)` returns the same value as auto-detected |
-| 5 | Tilde expansion | `PathMix.resolve('~/foo')` equals `path.join(os.homedir(), 'foo')` |
-| 6 | `$HOME` expansion | `PathMix.resolve('$HOME/foo')` equals `path.join(os.homedir(), 'foo')` |
-| 7 | Home path | `PathMix.home('bar')` equals `path.join(os.homedir(), 'bar')` |
-| 8 | CWD path | `PathMix.cwd('baz')` equals `path.join(process.cwd(), 'baz')` |
-| 9 | Tmp path | `PathMix.tmp('x')` equals `path.join(os.tmpdir(), 'x')` |
-| 10 | No boilerplate in ESM | Generated ESM code does not import `fileURLToPath` or reconstruct `__dirname` manually |
-| 11 | Error on failure | Calling `dir()` in an unsupported context throws `Error` (not silent `undefined`) |
-| 12 | CJS/ESM parity | Same API calls return identical values in both module systems |
-| 13 | Smoke test passes | `npm test` exits with code 0 |
 
 ---
 
